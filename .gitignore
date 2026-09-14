@@ -1,0 +1,25 @@
+.env
+.env.*
+!.env.example
+runs/
+logs/
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+.vscode/
+
+# BrowseComp-Plus decrypted benchmark data must remain local.
+data/browsecomp_plus_decrypted.jsonl
+topics-qrels/queries.tsv
+local_retrieval/data/browsecomp_plus_decrypted.jsonl
+local_retrieval/data/queries.tsv
+local_retrieval/data/bcp/
+local_retrieval/data/chunks_5k.jsonl
+local_retrieval/data/corpus_5k.jsonl
+local_retrieval/indexes/*.faiss
+local_retrieval/cache/
+local_retrieval/data/*.parquet
+models/
+checkpoints/
