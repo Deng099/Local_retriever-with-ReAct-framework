@@ -1,8 +1,12 @@
 import os
-import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 from my_ReAct.base_tool import BaseTool
 from my_ReAct.contracts import AgentRunResult
