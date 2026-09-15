@@ -161,6 +161,7 @@ def main():
         help='Maximum document characters returned inline by visit; full text stays server-side',
     )
     parser.add_argument('--host', default='127.0.0.1')
+    parser.add_argument('--allow-legacy-index', action='store_true', help='Explicitly allow old indexes without content hashes')
     parser.add_argument('--port', type=int, default=8002)
     args = parser.parse_args()
 
@@ -174,6 +175,7 @@ def main():
         args.chunks,
         embedder_name=embedder.name,
         embedder=embedder,
+        require_integrity=not args.allow_legacy_index,
     )
     # Extraction uses the generation configuration by default. Set
     # VISIT_EXTRACTION_MODEL/BASE_URL/API_KEY only when a separate extractor

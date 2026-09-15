@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pyarrow.parquet as pq
+from .data_artifacts import artifact_pair
 
 
 def convert_corpus(input_dir, output, batch_size=256, expected_docs=None):
@@ -13,13 +14,12 @@ def convert_corpus(input_dir, output, batch_size=256, expected_docs=None):
     shards = sorted(Path(input_dir).rglob('*.parquet'))
     if not shards:
         raise ValueError('No Parquet shards found')
-    if output.exists():
-        raise FileExistsError(f'Output already exists: {output}')
-    output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_name(output.name + '.tmp')
     seen = set()
     stats = {'shards': len(shards), 'rows': 0, 'documents': 0, 'empty_text': 0}
-    with temporary.open('w', encoding='utf-8') as target:
+    with (
+        artifact_pair(output, Path(f'{output}.json'), inputs=shards) as (temporary, temporary_metadata),
+        temporary.open('w', encoding='utf-8') as target,
+    ):
         for shard in shards:
             parquet = pq.ParquetFile(shard)
             names = parquet.schema_arrow.names
@@ -48,12 +48,11 @@ def convert_corpus(input_dir, output, batch_size=256, expected_docs=None):
                     target.write(json.dumps(record, ensure_ascii=False) + '\n')
                     stats['documents'] += 1
             print(f'read {shard.name}: {stats["rows"]} rows, {stats["documents"]} documents', flush=True)
-    if expected_docs is not None and stats['documents'] != expected_docs:
-        raise ValueError(f'Expected {expected_docs} documents, got {stats["documents"]}; partial output: {temporary}')
-    if not stats['documents']:
-        raise ValueError('Corpus has no nonempty documents')
-    temporary.replace(output)
-    output.with_name(output.name + '.json').write_text(json.dumps(stats, indent=2), encoding='utf-8')
+        if expected_docs is not None and stats['documents'] != expected_docs:
+            raise ValueError(f'Expected {expected_docs} documents, got {stats["documents"]}')
+        if not stats['documents']:
+            raise ValueError('Corpus has no nonempty documents')
+        temporary_metadata.write_text(json.dumps(stats, indent=2), encoding='utf-8')
     return stats
 
 

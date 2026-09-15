@@ -1,18 +1,28 @@
 import json
+import hashlib
+import warnings
 from pathlib import Path
 
 import faiss
 import numpy as np
+from .data_artifacts import sha256_file, validate_chunk
 
 class LocalRetriever:
-    def __init__(self, index_path, chunks_path, embedder_name='qwen3-0.6b', manifest_path=None, embedder=None):
+    def __init__(self, index_path, chunks_path, embedder_name='qwen3-0.6b', manifest_path=None, embedder=None, require_integrity=False):
         self.index_path = Path(index_path)
         self.chunks_path = Path(chunks_path)
         self.embedder_name = embedder_name
 
         self.index = faiss.read_index(str(self.index_path))
-        with open(self.chunks_path, "r", encoding="utf-8") as f:
-            self.chunks = [json.loads(line) for line in f if line.strip()]
+        digest = hashlib.sha256()
+        self.chunks = []
+        with self.chunks_path.open('rb') as source:
+            for line in source:
+                digest.update(line)
+                if line.strip():
+                    chunk = json.loads(line)
+                    validate_chunk(chunk)
+                    self.chunks.append(chunk)
             
         if self.index.ntotal != len(self.chunks):
             raise ValueError(
@@ -36,6 +46,16 @@ class LocalRetriever:
                     f"Manifest/index mismatch: {self.manifest.get('vector_count')} vectors in manifest vs "
                     f"{self.index.ntotal} in index"
                 )
+
+        if self.manifest and self.manifest.get('format_version') == 2:
+            if self.manifest.get('chunks_sha256') != digest.hexdigest():
+                raise ValueError('Index/chunks content hash mismatch')
+            if self.manifest.get('index_sha256') != sha256_file(self.index_path):
+                raise ValueError('Index content hash mismatch')
+        elif require_integrity:
+            raise ValueError('Integrity manifest v2 required; rebuild index or explicitly allow legacy index')
+        else:
+            warnings.warn('Legacy index: content integrity is not verified', RuntimeWarning, stacklevel=2)
 
         if embedder is None:
             from .embedder import create_embedder

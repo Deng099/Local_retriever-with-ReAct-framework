@@ -78,7 +78,7 @@ class DataPipelineTest(unittest.TestCase):
                 return np.asarray([[1.0, 0.0]] * len(texts), dtype='float32')
 
         embedder = FakeEmbedder()
-        chunks = ({'text': str(index)} for index in range(5))
+        chunks = ({'doc_id': 'a', 'chunk_id': index, 'text': str(index)} for index in range(5))
         index = build_index(chunks, embedder, batch_size=2)
         self.assertEqual([2, 2, 1], embedder.batch_sizes)
         self.assertEqual(5, index.ntotal)

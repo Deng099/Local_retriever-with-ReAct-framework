@@ -1,5 +1,6 @@
 import argparse
 import json
+import hashlib
 import os
 from itertools import islice
 from pathlib import Path
@@ -8,6 +9,7 @@ import faiss
 import numpy as np
 
 from .embedder import EMBEDDER_NAMES, create_embedder
+from .data_artifacts import artifact_pair, check_output_paths, sha256_file, validate_chunk
 
 
 DEFAULT_INDEX_NAMES = {
@@ -15,11 +17,15 @@ DEFAULT_INDEX_NAMES = {
 }
 
 
-def load_chunks(path):
-    with path.open(encoding='utf-8') as file:
+def load_chunks(path, digest=None):
+    with Path(path).open('rb') as file:
         for line in file:
+            if digest is not None:
+                digest.update(line)
             if line.strip():
-                yield json.loads(line)
+                chunk = json.loads(line)
+                validate_chunk(chunk)
+                yield chunk
 
 
 def build_index(chunks, embedder, batch_size):
@@ -29,7 +35,10 @@ def build_index(chunks, embedder, batch_size):
     chunks = iter(chunks)
     batch_number = 0
     while True:
-        batch = [chunk['text'] for chunk in islice(chunks, batch_size)]
+        rows = list(islice(chunks, batch_size))
+        for chunk in rows:
+            validate_chunk(chunk)
+        batch = [chunk['text'] for chunk in rows]
         if not batch:
             break
         embeddings = embedder.encode_documents(batch)
@@ -48,13 +57,16 @@ def build_index(chunks, embedder, batch_size):
     return index
 
 
-def save_manifest(path, embedder, chunks_path, index, chunk_size, chunk_overlap):
+def save_manifest(path, embedder, chunks_path, index, chunk_size, chunk_overlap, chunks_sha256, index_sha256):
     chunks_path = Path(chunks_path)
     try:
         recorded_chunks_path = chunks_path.resolve().relative_to(Path(__file__).resolve().parent).as_posix()
     except ValueError:
         recorded_chunks_path = str(chunks_path)
     manifest = {
+        'format_version': 2,
+        'chunks_sha256': chunks_sha256,
+        'index_sha256': index_sha256,
         'embedder': embedder.name,
         'model': embedder.model_name,
         'dimension': embedder.dimension,
@@ -86,30 +98,31 @@ def main():
     args = parser.parse_args()
     if args.batch_size <= 0:
         parser.error('--batch-size must be greater than zero')
+    if args.chunk_size <= 0 or not 0 <= args.chunk_overlap < args.chunk_size:
+        parser.error('Require chunk_size > 0 and 0 <= chunk_overlap < chunk_size')
 
     index_path = args.index or retrieval_dir / 'indexes' / DEFAULT_INDEX_NAMES[args.embedder]
     manifest_path = args.manifest or Path(f'{index_path}.json')
-    if index_path.exists() or manifest_path.exists():
-        parser.error('Index or manifest already exists; choose a new output path')
     chunk_metadata = Path(f'{args.chunks}.json')
+    check_output_paths(index_path, manifest_path, inputs=[args.chunks, chunk_metadata])
+    metadata = None
     if chunk_metadata.exists():
         metadata = json.loads(chunk_metadata.read_text(encoding='utf-8'))
         if (metadata['chunk_size'], metadata['chunk_overlap']) != (args.chunk_size, args.chunk_overlap):
             parser.error('Chunk size/overlap do not match chunk metadata')
-    chunks = load_chunks(args.chunks)
+    digest = hashlib.sha256()
+    chunks = load_chunks(args.chunks, digest=digest)
     embedder = create_embedder(args.embedder, model_path=args.model_path, device=args.device)
     index = build_index(chunks, embedder, args.batch_size)
-    if chunk_metadata.exists() and index.ntotal != metadata['chunks']:
+    if metadata is not None and index.ntotal != metadata['chunks']:
         raise ValueError('Vector count does not match chunk metadata; no index published')
+    if sha256_file(args.chunks) != digest.hexdigest():
+        raise ValueError('Chunks changed during encoding; no index published')
 
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_index = index_path.with_name(index_path.name + '.tmp')
-    faiss.write_index(index, str(temporary_index))
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_manifest = manifest_path.with_name(manifest_path.name + '.tmp')
-    save_manifest(temporary_manifest, embedder, args.chunks, index, args.chunk_size, args.chunk_overlap)
-    temporary_index.replace(index_path)
-    temporary_manifest.replace(manifest_path)
+    with artifact_pair(index_path, manifest_path, inputs=[args.chunks, chunk_metadata]) as (temporary_index, temporary_manifest):
+        faiss.write_index(index, str(temporary_index))
+        save_manifest(temporary_manifest, embedder, args.chunks, index, args.chunk_size, args.chunk_overlap,
+                      digest.hexdigest(), sha256_file(temporary_index))
     print(f'vectors: {index.ntotal}')
     print(f'dimension: {index.d}')
     print(f'saved: {index_path}')

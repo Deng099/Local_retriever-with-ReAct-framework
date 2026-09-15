@@ -13,8 +13,10 @@ python -m local_retrieval.chunk_corpus --input /data00/xingyi_deng/data/bcp-full
 ```
 
 转换会检查重复/缺失 ID、读取全部分片并报告空文本；输出旁的 JSON 记录数量。切块默认
-256 tokens、重叠 32 tokens，输出旁记录实际配置。已有最终输出会拒绝覆盖；中断留下的
-`.tmp` 不是可用数据，重新运行会从头构建临时文件。
+256 tokens、重叠 32 tokens，输出旁记录实际配置。已有最终输出会拒绝覆盖。
+普通异常会清理本次临时文件及已发布的元数据。临时文件使用唯一名字，已有数据和元数据
+都不会被覆盖。强制杀进程或断电可能留下临时文件/孤立元数据；这不是断点，不应直接加载。
+必须先核对产物并清理孤立文件，或改用新的输出路径。
 
 切块结束后先查看 `chunks.jsonl.json` 的 chunk 数。1024 维 float32 向量至少需要
 `chunk_count × 4096` 字节 CPU RAM，另需留出 FAISS 构建及后续服务加载文本的内存。
@@ -28,6 +30,11 @@ python -m local_retrieval.build_index --chunks /data00/xingyi_deng/data/bcp-full
 全程不调用 generation API。文本逐批读取；精确 FAISS 向量仍驻留 CPU RAM。当前没有编码
 断点续建，进程中断后需重跑；最终索引只在写完后发布，不覆盖 5k 索引。后续检索服务
 通过 `--corpus`、`--chunks`、`--index` 指向这些全量文件。
+
+新索引的 manifest v2 保存 chunks 和索引的 SHA-256；编码结束时检查 chunks 未变化，
+检索服务加载时严格验证内容哈希。旧 5k manifest 没有哈希，无法获得同样的完整性保证；
+建议重建，或明确使用 `--allow-legacy-index` 接受旧格式，服务会警告。哈希是文件配对
+检查，不是来源认证，也不保证恶意可写目录或断电下的多文件事务安全。
 
 retrieval service 在服务器本地加载 Qwen3 embedding 和 FAISS；generation 与 extraction 通过 API 调用。无需安装或启动 vLLM。
 

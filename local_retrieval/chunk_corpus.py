@@ -2,6 +2,7 @@ import argparse
 import json
 from pathlib import Path
 from transformers import AutoTokenizer
+from .data_artifacts import artifact_pair
 
 # ===== Config =====
 RETRIEVAL_DIR = Path(__file__).resolve().parent
@@ -60,15 +61,12 @@ def chunk_corpus(input_path, output_path, tokenizer, chunk_size=CHUNK_SIZE, over
     if chunk_size <= 0 or overlap < 0 or overlap >= chunk_size:
         raise ValueError('Require chunk_size > 0 and 0 <= overlap < chunk_size')
     output_path = Path(output_path)
-    if output_path.exists():
-        raise FileExistsError(f'Output already exists: {output_path}')
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output_path.with_name(output_path.name + '.tmp')
 
     doc_count = 0
     chunk_count = 0
 
     with (
+        artifact_pair(output_path, Path(f'{output_path}.json'), inputs=[input_path]) as (temporary, temporary_metadata),
         Path(input_path).open("r", encoding="utf-8") as fin,
         temporary.open("w", encoding="utf-8") as fout,
     ):
@@ -105,11 +103,10 @@ def chunk_corpus(input_path, output_path, tokenizer, chunk_size=CHUNK_SIZE, over
             if doc_count % 1000 == 0:
                 print(f'chunked: {doc_count} documents, {chunk_count} chunks', flush=True)
 
-    if not chunk_count:
-        raise ValueError('No chunks generated')
-    temporary.replace(output_path)
-    stats = {'documents': doc_count, 'chunks': chunk_count, 'chunk_size': chunk_size, 'chunk_overlap': overlap}
-    output_path.with_name(output_path.name + '.json').write_text(json.dumps(stats, indent=2), encoding='utf-8')
+        if not chunk_count:
+            raise ValueError('No chunks generated')
+        stats = {'documents': doc_count, 'chunks': chunk_count, 'chunk_size': chunk_size, 'chunk_overlap': overlap}
+        temporary_metadata.write_text(json.dumps(stats, indent=2), encoding='utf-8')
     return stats
 
 
