@@ -1,12 +1,41 @@
 # Linux 服务器部署
 
+## 完整 BCP 数据准备（服务器直接下载）
+
+以下命令在已激活的 `react` 环境、项目根目录运行。镜像与缓存只设置在当前终端：
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+export HF_HOME=/data00/xingyi_deng/huggingface
+hf download Tevatron/browsecomp-plus-corpus --repo-type dataset --local-dir /data00/xingyi_deng/data/bcp-full/raw
+python -m local_retrieval.prepare_corpus --input-dir /data00/xingyi_deng/data/bcp-full/raw --output /data00/xingyi_deng/data/bcp-full/corpus.jsonl
+python -m local_retrieval.chunk_corpus --input /data00/xingyi_deng/data/bcp-full/corpus.jsonl --output /data00/xingyi_deng/data/bcp-full/chunks.jsonl --tokenizer /data00/xingyi_deng/models/Qwen3-Embedding-0.6B
+```
+
+转换会检查重复/缺失 ID、读取全部分片并报告空文本；输出旁的 JSON 记录数量。切块默认
+256 tokens、重叠 32 tokens，输出旁记录实际配置。已有最终输出会拒绝覆盖；中断留下的
+`.tmp` 不是可用数据，重新运行会从头构建临时文件。
+
+切块结束后先查看 `chunks.jsonl.json` 的 chunk 数。1024 维 float32 向量至少需要
+`chunk_count × 4096` 字节 CPU RAM，另需留出 FAISS 构建及后续服务加载文本的内存。
+确认实验室的 GPU 使用规则、获得可用 GPU 后再执行下面的编码命令；`cuda:0` 只是示例，
+不是 GPU 分配授权：
+
+```bash
+python -m local_retrieval.build_index --chunks /data00/xingyi_deng/data/bcp-full/chunks.jsonl --index /data00/xingyi_deng/data/bcp-full/indexes/chunks_qwen3_0.6b.faiss --model-path /data00/xingyi_deng/models/Qwen3-Embedding-0.6B --device cuda:0 --batch-size 32
+```
+
+全程不调用 generation API。文本逐批读取；精确 FAISS 向量仍驻留 CPU RAM。当前没有编码
+断点续建，进程中断后需重跑；最终索引只在写完后发布，不覆盖 5k 索引。后续检索服务
+通过 `--corpus`、`--chunks`、`--index` 指向这些全量文件。
+
 retrieval service 在服务器本地加载 Qwen3 embedding 和 FAISS；generation 与 extraction 通过 API 调用。无需安装或启动 vLLM。
 
 ## 1. 安装
 
 推荐使用以下目录：
 
-- 代码：`/data00/xingyi_deng/projects/ReAct_with_local-RAG`
+- 代码：`/data00/xingyi_deng/projects/Local_retriever-with-ReAct-framework`
 - Python 环境：`/data00/xingyi_deng/envs/react`
 - 数据：`/data00/xingyi_deng/data/react-rag`
 - 模型：`/data00/xingyi_deng/models/Qwen3-Embedding-0.6B`
@@ -16,7 +45,7 @@ retrieval service 在服务器本地加载 Qwen3 embedding 和 FAISS；generatio
 
 ```bash
 export REACT_ROOT=/data00/xingyi_deng
-export REACT_PROJECT=$REACT_ROOT/projects/ReAct_with_local-RAG
+export REACT_PROJECT=$REACT_ROOT/projects/Local_retriever-with-ReAct-framework
 export REACT_PYTHON=$REACT_ROOT/envs/react/bin/python
 cd "$REACT_PROJECT"
 test -x "$REACT_PYTHON"

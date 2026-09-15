@@ -1,3 +1,4 @@
+import argparse
 import json
 from pathlib import Path
 from transformers import AutoTokenizer
@@ -55,17 +56,21 @@ def split_into_chunks( text: str, tokenizer, chunk_size: int = CHUNK_SIZE,
     return chunks
 
 
-def main() -> None:
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+def chunk_corpus(input_path, output_path, tokenizer, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
+    if chunk_size <= 0 or overlap < 0 or overlap >= chunk_size:
+        raise ValueError('Require chunk_size > 0 and 0 <= overlap < chunk_size')
+    output_path = Path(output_path)
+    if output_path.exists():
+        raise FileExistsError(f'Output already exists: {output_path}')
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output_path.with_name(output_path.name + '.tmp')
 
     doc_count = 0
     chunk_count = 0
 
     with (
-        INPUT_PATH.open("r", encoding="utf-8") as fin,
-        OUTPUT_PATH.open("w", encoding="utf-8") as fout,
+        Path(input_path).open("r", encoding="utf-8") as fin,
+        temporary.open("w", encoding="utf-8") as fout,
     ):
         for line in fin:
             line = line.strip()
@@ -85,7 +90,7 @@ def main() -> None:
             if not isinstance(text, str) or not text.strip():
                 continue
 
-            chunks = split_into_chunks(text, tokenizer)
+            chunks = split_into_chunks(text, tokenizer, chunk_size, overlap)
 
             for chunk_id, chunk_text in enumerate(chunks):
                 record = {
@@ -97,10 +102,27 @@ def main() -> None:
                 chunk_count += 1
 
             doc_count += 1
+            if doc_count % 1000 == 0:
+                print(f'chunked: {doc_count} documents, {chunk_count} chunks', flush=True)
 
-    print(f"Processed documents: {doc_count}")
-    print(f"Generated chunks: {chunk_count}")
-    print(f"Saved to: {OUTPUT_PATH}")
+    if not chunk_count:
+        raise ValueError('No chunks generated')
+    temporary.replace(output_path)
+    stats = {'documents': doc_count, 'chunks': chunk_count, 'chunk_size': chunk_size, 'chunk_overlap': overlap}
+    output_path.with_name(output_path.name + '.json').write_text(json.dumps(stats, indent=2), encoding='utf-8')
+    return stats
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description='Stream corpus JSONL into token-based chunks')
+    parser.add_argument('--input', type=Path, default=INPUT_PATH)
+    parser.add_argument('--output', type=Path, default=OUTPUT_PATH)
+    parser.add_argument('--tokenizer', default=MODEL_NAME, help='Local Qwen tokenizer directory or model ID')
+    parser.add_argument('--chunk-size', type=int, default=CHUNK_SIZE)
+    parser.add_argument('--chunk-overlap', type=int, default=CHUNK_OVERLAP)
+    args = parser.parse_args()
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+    print(json.dumps(chunk_corpus(args.input, args.output, tokenizer, args.chunk_size, args.chunk_overlap)))
 
 
 if __name__ == "__main__":

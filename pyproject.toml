@@ -27,6 +27,7 @@ python-tool = [
     "scipy>=1.14,<2",
 ]
 server = [
+    "pyarrow>=19,<23",
     "tomli>=2,<3; python_version < '3.11'",
     "fastapi>=0.115,<1",
     "faiss-cpu>=1.9,<2",
