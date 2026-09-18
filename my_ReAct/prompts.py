@@ -1,7 +1,16 @@
 import json
 
 
-RESEARCH_QUERY_TEMPLATE = '''You are a deep research agent. Answer the question by using the fixed search, visit, and python tools step by step. Search accepts multiple queries in one call and returns top-k chunks. Visit reads cleaned fixed-corpus or static web content and accepts an optional extraction goal. Python can calculate or process data and preserves variables during this task. For questions with multiple clues, verify the decisive clues before answering; a partial match is not sufficient. If evidence conflicts with a candidate, reject it and continue searching. Use python only for actual calculation or data processing.
+DEFAULT_TOOL_USE_POLICY = '''Tool-use policy:
+- Begin with a batched search of distinct, clue-focused queries when several facts are needed.
+- Every later tool call must target a specific unresolved fact.
+- Inspect existing snippets before searching again. Do not repeat a semantically equivalent search unless new evidence justifies it.
+- Visit a document when its snippet indicates that it may resolve an unresolved fact and the snippet itself is insufficient.
+- Once the available evidence supports a unique answer, stop using tools and answer. Do not search merely to increase confidence.
+- For multi-clue questions, verify the decisive clues; for simple questions, do not manufacture extra research steps.'''
+
+
+RESEARCH_QUERY_TEMPLATE = '''You are a deep research agent. Research the question with the fixed search, visit, and python tools as needed, and ground the final answer in retrieved evidence. Search accepts multiple queries in one call and returns top-k chunks. Visit reads cleaned fixed-corpus or static web content and accepts an optional extraction goal. Python can calculate or process data and preserves variables during this task. For questions with multiple clues, verify the decisive clues before answering; a partial match is not sufficient. If evidence conflicts with a candidate, reject it and continue searching. Use python only for actual calculation or data processing.
 
 Question: {question}
 Your response should be in the following format:
@@ -23,6 +32,7 @@ def build_agent_system_prompt(tool_schemas):
         'view. Treat that as partial evidence: if another clue is needed, revisit the same '
         'reference with a new goal or a character range; do not conclude that an omitted fact is '
         'absent. Use python only when it processes retrieved facts or performs a real calculation. '
+        f'\n\n{DEFAULT_TOOL_USE_POLICY}\n\n'
         'Tool definitions:\n'
         f'{json.dumps(tool_schemas, ensure_ascii=False)}'
     )

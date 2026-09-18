@@ -68,6 +68,10 @@ class FrameworkContractTest(unittest.TestCase):
         self.assertIn('server', pyproject['project']['optional-dependencies'])
         self.assertNotIn('vllm', ' '.join(pyproject['project']['optional-dependencies']['server']).lower())
         self.assertEqual('my_ReAct.run:main', pyproject['project']['scripts']['react-rag'])
+        self.assertEqual(
+            'my_ReAct.inspect_run:main',
+            pyproject['project']['scripts']['react-rag-inspect'],
+        )
 
     @patch('my_ReAct.run.create_research_agent')
     @patch('my_ReAct.run.create_llm')

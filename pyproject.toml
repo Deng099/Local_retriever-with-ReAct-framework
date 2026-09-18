@@ -52,6 +52,7 @@ benchmark-prep = [
 
 [project.scripts]
 react-rag = "my_ReAct.run:main"
+react-rag-inspect = "my_ReAct.inspect_run:main"
 react-rag-retrieval = "local_retrieval.retrieval_service:main"
 react-rag-retrieval-eval = "local_retrieval.retrieval_eval:main"
 

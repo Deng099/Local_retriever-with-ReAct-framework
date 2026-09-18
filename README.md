@@ -44,9 +44,25 @@ react-rag-retrieval --help
 `--context-chars N` 调整预算，或用旧的 `--context-turns 4` 明确切换为最近四轮窗口。
 预算是字符数而非精确 token 数，需给模型输出和 provider tokenization 留余量。
 逐题结果包含 `run_state`、context 配置、检索身份和 `experiment_id`，并原子写盘。
+新运行还会在 trajectory 的 assistant/tool 消息中记录 `latency_seconds`，并在顶层
+`timing` 汇总 LLM 与各工具耗时，便于区分模型 API、检索和 visit 的性能瓶颈。
 目录内的 `experiment.json` 固定模型/API、prompt、输入数据、工具预算和 context
 配置；相同配置可续跑，改变配置请使用新目录。旧版没有身份记录的结果目录也需
 换目录，不会自动覆盖或认作当前实验。API key 不写入配置。
+
+查看单个或一批 run 时可使用轻量检查命令；answers 和 relevance 都是可选项：
+
+```bash
+python -m my_ReAct.inspect_run runs/experiment1 \
+  --answers data/answers.json \
+  --relevance data/relevance.json \
+  --query-id 770 \
+  --trajectory
+```
+
+报告包含状态、停止原因、工具次数、token、LLM/tool 耗时、最终回答，以及在标签
+可用时的 evidence/gold 文档 recall 和 ground truth。trajectory 默认截断旧观察，最终
+回答完整保留；用 `--max-content-chars` 调整预览长度。
 
 更新后先重启 retrieval 服务，它会在启动时计算 index/chunks/corpus 的 SHA-256，
 通过 `/health` 返回给 runner。启动会多一次文件顺序读取；健康检查不重复计算。

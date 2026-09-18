@@ -4,7 +4,8 @@ import unittest
 
 from my_ReAct.base_tool import BaseTool, RegisterTool
 from my_ReAct.python_tool import PythonTool
-from my_ReAct.run import collect_run_data
+from my_ReAct.run import collect_run_data, collect_timing_data
+from my_ReAct.prompts import DEFAULT_TOOL_USE_POLICY
 from my_ReAct.python_session import (
     PythonSessionCrashed,
     PythonSessionManager,
@@ -122,6 +123,24 @@ class ToolTest(unittest.TestCase):
 
         self.assertEqual({'search': 1, 'python': 1}, counts)
         self.assertEqual(['doc-1', 'doc-2'], docids)
+
+    def test_runner_collects_llm_and_tool_timing(self):
+        timing = collect_timing_data([
+            {'role': 'assistant', 'latency_seconds': 2.5},
+            {'role': 'tool', 'name': 'search', 'latency_seconds': 0.4},
+            {'role': 'tool', 'name': 'search', 'latency_seconds': 0.6},
+            {'role': 'tool', 'name': 'visit', 'latency_seconds': 0.2},
+            {'role': 'assistant', 'latency_seconds': -1},
+        ])
+
+        self.assertEqual(2.5, timing['llm_seconds'])
+        self.assertAlmostEqual(1.2, timing['tool_seconds'])
+        self.assertEqual({'search': 1.0, 'visit': 0.2}, timing['tool_seconds_by_name'])
+
+    def test_default_tool_policy_requires_evidence_sufficiency_and_no_repeat_search(self):
+        self.assertIn('specific unresolved fact', DEFAULT_TOOL_USE_POLICY)
+        self.assertIn('semantically equivalent search', DEFAULT_TOOL_USE_POLICY)
+        self.assertIn('stop using tools and answer', DEFAULT_TOOL_USE_POLICY)
 
     def test_tool_registry_returns_one_serializable_result_contract(self):
         registry = RegisterTool([EchoTool()])
@@ -300,6 +319,12 @@ class ToolTest(unittest.TestCase):
         self.assertTrue(python_results[-1]['ok'])
         self.assertEqual('15', python_results[-1]['data']['result'])
         self.assertFalse(python_tool.is_active)
+        timed_messages = [
+            message for message in agent.messages
+            if message['role'] in {'assistant', 'tool'}
+        ]
+        self.assertTrue(timed_messages)
+        self.assertTrue(all(message.get('latency_seconds', -1) >= 0 for message in timed_messages))
         python_schema = agent.tool_schemas[-1]['function']['parameters']
         self.assertNotIn('session_id', python_schema['properties'])
 

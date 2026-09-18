@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from copy import deepcopy
 from dataclasses import dataclass, field
 
@@ -112,8 +113,13 @@ class ReActAgent:
     def _run_loop(self):
         for step in range(self.max_step):
 
+            llm_started = time.perf_counter()
             llm_result = self._generate(self.tool_schemas)
-            assistant_message = {'role': 'assistant', 'content': llm_result.text}
+            assistant_message = {
+                'role': 'assistant',
+                'content': llm_result.text,
+                'latency_seconds': time.perf_counter() - llm_started,
+            }
             if llm_result.tool_calls:
                 assistant_message['tool_calls'] = [
                     {'name': call.name, 'arguments': call.arguments, 'call_id': call.call_id}
@@ -135,21 +141,28 @@ class ReActAgent:
                 parameters = tool_call.arguments
                 
                 # < >name, parameter, < >
+                tool_started = time.perf_counter()
                 tool_result = self.tool_registry.execute(name, **parameters)
 
                 self.messages.append({
                     'role': 'tool',
                     'name': name,
                     'content': tool_result,
-                    'call_id': tool_call.call_id
+                    'call_id': tool_call.call_id,
+                    'latency_seconds': time.perf_counter() - tool_started,
                 })
 
         self.messages.append({
             'role': 'user',
             'content': 'The tool budget is exhausted. Do not call tools. Answer the original question now using the available evidence.'
         })
+        llm_started = time.perf_counter()
         final_result = self._generate([])
-        final_message = {'role': 'assistant', 'content': final_result.text}
+        final_message = {
+            'role': 'assistant',
+            'content': final_result.text,
+            'latency_seconds': time.perf_counter() - llm_started,
+        }
         if final_result.usage is not None:
             final_message['usage'] = final_result.usage.model_dump() if hasattr(final_result.usage, 'model_dump') else final_result.usage
         self.messages.append(final_message)

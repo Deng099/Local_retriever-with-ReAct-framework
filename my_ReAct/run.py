@@ -43,6 +43,28 @@ def collect_run_data(messages):
     return tool_call_counts, retrieved_docids
 
 
+def collect_timing_data(messages):
+    llm_seconds = 0.0
+    tool_seconds = 0.0
+    tool_seconds_by_name = {}
+    for message in messages:
+        latency = message.get('latency_seconds')
+        if not isinstance(latency, (int, float)) or isinstance(latency, bool):
+            continue
+        latency = max(0.0, float(latency))
+        if message.get('role') == 'assistant':
+            llm_seconds += latency
+        elif message.get('role') == 'tool':
+            tool_seconds += latency
+            name = message.get('name', 'unknown')
+            tool_seconds_by_name[name] = tool_seconds_by_name.get(name, 0.0) + latency
+    return {
+        'llm_seconds': llm_seconds,
+        'tool_seconds': tool_seconds,
+        'tool_seconds_by_name': tool_seconds_by_name,
+    }
+
+
 def run_query(
     query_id,
     query,
@@ -98,6 +120,7 @@ def run_query(
         if isinstance(stats, dict):
             context_stats = dict(stats)
     tool_call_counts, retrieved_docids = collect_run_data(messages)
+    timing = collect_timing_data(messages)
     return {
         'query_id': str(query_id),
         'tool_call_counts': tool_call_counts,
@@ -120,6 +143,7 @@ def run_query(
                       if agent and isinstance(agent.state, RunState) else None),
         'max_step': max_step,
         'usage': [message['usage'] for message in messages if 'usage' in message],
+        'timing': timing,
         'error': error,
         'trajectory': messages,
     }
