@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from local_retrieval.prepare_bcp_subset import select_sample_ids, write_sample
+
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -21,6 +23,48 @@ class FakeTokenizer:
 
 
 class DataPipelineTest(unittest.TestCase):
+    def test_bcp_sample_is_deterministic_complete_and_excludes_debug_queries(self):
+        coverage = [
+            {
+                'query_id': str(query_id),
+                'all_evidence_in_corpus': query_id != 4,
+                'all_gold_in_corpus': query_id != 5,
+            }
+            for query_id in range(1, 9)
+        ]
+
+        first = select_sample_ids(coverage, 3, seed=17, excluded_ids=['1'])
+        second = select_sample_ids(coverage, 3, seed=17, excluded_ids=['1'])
+
+        self.assertEqual(first, second)
+        self.assertEqual(first, sorted(first, key=int))
+        self.assertNotIn('1', first)
+        self.assertNotIn('4', first)
+        self.assertNotIn('5', first)
+        with self.assertRaises(ValueError):
+            select_sample_ids(coverage, 99, seed=17)
+
+    def test_bcp_sample_writes_matching_queries_answers_and_relevance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = write_sample(
+                root,
+                ['2', '7'],
+                {'2': 'question two', '7': 'question seven'},
+                {'2': 'answer two', '7': 'answer seven'},
+                {'2': {'e2', 'e1'}, '7': {'e7'}},
+                {'2': {'g2'}, '7': {'g7'}},
+                seed=11,
+            )
+
+            query_lines = Path(result['queries']).read_text(encoding='utf-8').splitlines()
+            answers = json.loads(Path(result['answers']).read_text(encoding='utf-8'))
+            relevance = json.loads(Path(result['relevance']).read_text(encoding='utf-8'))
+            self.assertEqual(['2\tquestion two', '7\tquestion seven'], query_lines)
+            self.assertEqual({'2': 'answer two', '7': 'answer seven'}, answers)
+            self.assertEqual(['e1', 'e2'], relevance['2']['evidence'])
+            self.assertEqual(['g7'], relevance['7']['gold'])
+
     def test_parquet_conversion_preserves_sources_and_reports_empty_text(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -73,6 +73,25 @@ test -x "$REACT_PYTHON"
 "$REACT_PYTHON" -m pip install -e '.[benchmark-prep]'
 ```
 
+生成一份可复现的完整语料实验子集时，同时保存 query、answer 和 evidence/gold
+标签。下面的例子固定抽取 20 题，并排除已经用于人工调试的 769--771；只应把输出
+保存在数据目录，不要提交解密后的 benchmark 内容：
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+"$REACT_PYTHON" -m local_retrieval.prepare_bcp_subset \
+  --corpus /data00/xingyi_deng/data/bcp-full/corpus.jsonl \
+  --output-dir /data00/xingyi_deng/data/bcp-full/benchmark \
+  --sample-size 20 \
+  --seed 20260919 \
+  --exclude-query-id 769 \
+  --exclude-query-id 770 \
+  --exclude-query-id 771
+```
+
+抽样只从 evidence 和 gold 文档都完整存在于当前 corpus 的题目中进行。相同 seed、
+corpus 和排除列表会生成同一批题，便于在策略修改前后复跑。
+
 ## 2. 下载本地 embedding
 
 把模型和 Hugging Face 缓存放在自己的磁盘目录，不占共享系统盘：
