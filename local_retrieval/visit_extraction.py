@@ -177,7 +177,26 @@ def get_goal_extraction(document, goal, extractor, cache):
         extractor.prompt_version,
     )
     if cached is None:
-        extraction_result = extractor.extract(document, goal)
+        try:
+            extraction_result = extractor.extract(document, goal)
+        except Exception as exc:
+            # Extraction is an optional context-reduction optimization. A
+            # provider outage or unsupported model must not make the source
+            # document unavailable to the agent; return a structured error
+            # and let the document store keep its bounded raw preview.
+            return {
+                'status': 'error',
+                'goal': goal,
+                'content': None,
+                'model': extractor.model,
+                'prompt_version': extractor.prompt_version,
+                'created_at': None,
+                'cache_hit': False,
+                'error': {
+                    'type': type(exc).__name__,
+                    'message': str(exc)[:2000],
+                },
+            }
         if isinstance(extraction_result, tuple):
             extraction, extraction_meta = extraction_result
         else:

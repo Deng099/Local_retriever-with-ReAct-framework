@@ -243,6 +243,38 @@ class HostedRetrievalTest(unittest.TestCase):
             self.assertEqual('full fixed text', result['document']['content'])
             self.assertEqual('not_configured', result['extraction']['status'])
 
+    def test_extraction_failure_falls_back_to_bounded_document_view(self):
+        class FailingExtractor:
+            model = 'unavailable-model'
+            prompt_version = 'prompt-v1'
+
+            def extract(self, document, goal):
+                raise RuntimeError('provider model unavailable')
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            corpus_path = temp_path / 'corpus.jsonl'
+            corpus_path.write_text(
+                json.dumps({'id': 'doc-1', 'text': '0123456789' * 20}) + '\n',
+                encoding='utf-8',
+            )
+            store = CorpusDocumentStore(
+                corpus_path,
+                inline_content_limit=12,
+                goal_extractor=FailingExtractor(),
+                extraction_cache=VisitExtractionCache(temp_path / 'visit.sqlite3'),
+            )
+
+            result = store.visit('doc-1', goal='find dates')
+
+            self.assertEqual('012345678901', result['document']['content'])
+            self.assertTrue(result['document']['content_truncated'])
+            self.assertNotIn('content_omitted', result['document'])
+            self.assertEqual('error', result['extraction']['status'])
+            self.assertEqual('RuntimeError', result['extraction']['error']['type'])
+            self.assertIn('model unavailable', result['extraction']['error']['message'])
+            self.assertFalse(result['extraction']['cache_hit'])
+
     def test_long_visit_returns_bounded_view_and_supports_range_reads(self):
         class FakeExtractor:
             model = 'fake-model'
